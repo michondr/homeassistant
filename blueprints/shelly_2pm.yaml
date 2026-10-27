@@ -1,0 +1,153 @@
+blueprint:
+  name: Shelly 2PM shutter — directional buttons + stop + double-tap tilt
+  description: >
+    Single click on the DOWN input closes the shutter; single click on the UP input opens it.
+    A single click while the shutter is moving stops it (any time, not tied to the double-tap window).
+    Double click on the DOWN input closes fully, then tilts the slats to a chosen position.
+    Instantiate once per Shelly 2PM module.
+  domain: automation
+  input:
+    input_0_event:
+      name: DOWN input event entity (input 0)
+      selector:
+        entity:
+          domain: event
+    input_1_event:
+      name: UP input event entity (input 1)
+      selector:
+        entity:
+          domain: event
+    cover:
+      name: Cover entity
+      selector:
+        entity:
+          domain: cover
+    tilt_position:
+      name: Slat tilt after double-tap close (0=closed slats, 100=fully open slats)
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    moving_check_delay:
+      name: Delay before checking if the cover is moving (lets the state settle)
+      default: 0.5
+      selector:
+        number:
+          min: 0
+          max: 3
+          step: 0.1
+          unit_of_measurement: seconds
+    close_timeout:
+      name: Max wait for the shutter to reach fully closed
+      default: "00:01:10"
+      selector:
+        duration:
+
+trigger:
+  - trigger: event.received
+    target:
+      entity_id: !input input_0_event
+    options:
+      event_type:
+        - double_push
+    id: down_then_tilt
+  - trigger: event.received
+    target:
+      entity_id: !input input_0_event
+    options:
+      event_type:
+        - single_push
+    id: down
+  - trigger: event.received
+    target:
+      entity_id: !input input_1_event
+    options:
+      event_type:
+        - single_push
+    id: up
+
+condition: []
+
+action:
+  - choose:
+      - alias: "Double-click DOWN → close, then tilt slats"
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'down_then_tilt' }}"
+        sequence:
+          - action: cover.close_cover
+            target:
+              entity_id: !input cover
+          - if:
+              - condition: not
+                conditions:
+                  - condition: state
+                    entity_id: !input cover
+                    state: closed
+            then:
+              - wait_for_trigger:
+                  - trigger: state
+                    entity_id: !input cover
+                    to: closed
+                timeout: !input close_timeout
+                continue_on_timeout: false
+          - action: cover.set_cover_tilt_position
+            target:
+              entity_id: !input cover
+            data:
+              tilt_position: !input tilt_position
+
+      - alias: "Single-click DOWN → stop if moving, else close"
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'down' }}"
+        sequence:
+          - delay: !input moving_check_delay
+          - choose:
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity_id: !input cover
+                        state: opening
+                      - condition: state
+                        entity_id: !input cover
+                        state: closing
+                sequence:
+                  - action: cover.stop_cover
+                    target:
+                      entity_id: !input cover
+            default:
+              - action: cover.close_cover
+                target:
+                  entity_id: !input cover
+
+      - alias: "Single-click UP → stop if moving, else open"
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'up' }}"
+        sequence:
+          - delay: !input moving_check_delay
+          - choose:
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity_id: !input cover
+                        state: opening
+                      - condition: state
+                        entity_id: !input cover
+                        state: closing
+                sequence:
+                  - action: cover.stop_cover
+                    target:
+                      entity_id: !input cover
+            default:
+              - action: cover.open_cover
+                target:
+                  entity_id: !input cover
+
+mode: restart

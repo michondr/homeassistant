@@ -1,0 +1,226 @@
+blueprint:
+  name: ZHA Zigbee switch — RGB light (click / hold-dim / double-click color)
+  description: >
+    Controls an RGB(W) light from a 2-button ZHA Zigbee switch (UP and DOWN buttons).
+    Click UP = turn on; Click DOWN = turn off.
+    Hold UP = brighten by N% every T seconds until 100% or release.
+    Hold DOWN = dim by N% every T seconds until 1% or release.
+    Double-click UP = warm white (warmest color temp) at current brightness.
+    Double-click DOWN = red (configurable RGB) at current brightness.
+    When off and you hold UP, dimming starts from 1%.
+    Double-click is detected in HA via two input_boolean helpers; single on/off is delayed by the double-click window.
+    Note: UP hold sends ZHA command 'move_with_on_off'; DOWN hold sends 'move' — both are handled.
+  domain: automation
+  input:
+    remote:
+      name: ZHA switch device
+      selector:
+        device:
+          integration: zha
+    light:
+      name: Light entity
+      selector:
+        entity:
+          domain: light
+    dbl_up_pending:
+      name: Helper — UP double-click pending (input_boolean)
+      selector:
+        entity:
+          domain: input_boolean
+    dbl_down_pending:
+      name: Helper — DOWN double-click pending (input_boolean)
+      selector:
+        entity:
+          domain: input_boolean
+    step:
+      name: Brightness step per cycle (%)
+      default: 10
+      selector:
+        number: { min: 1, max: 50, step: 1, unit_of_measurement: "%" }
+    interval:
+      name: Time between dim steps (seconds)
+      default: 0.5
+      selector:
+        number: { min: 0.1, max: 5, step: 0.1, unit_of_measurement: seconds }
+    double_click_window:
+      name: Double-click window (seconds; also the single-click delay)
+      default: 0.5
+      selector:
+        number: { min: 0.1, max: 1.0, step: 0.05, unit_of_measurement: seconds }
+    red_r:
+      name: "Double-click DOWN: red — R"
+      default: 255
+      selector: { number: { min: 0, max: 255, step: 1 } }
+    red_g:
+      name: "Double-click DOWN: red — G"
+      default: 0
+      selector: { number: { min: 0, max: 255, step: 1 } }
+    red_b:
+      name: "Double-click DOWN: red — B"
+      default: 0
+      selector: { number: { min: 0, max: 255, step: 1 } }
+    warm_white_kelvin:
+      name: "Double-click UP: warm white Kelvin (0 = auto, use the light's warmest = min_color_temp_kelvin)"
+      default: 0
+      selector:
+        number: { min: 0, max: 20000, step: 50, unit_of_measurement: K }
+
+variables:
+  light_e: !input light
+  step_v: !input step
+  ww_k: !input warm_white_kelvin
+
+trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+      command: 'on'
+    id: click_up
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+      command: 'off'
+    id: click_down
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+      command: move_with_on_off
+    id: hold
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+      command: move
+    id: hold_move
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+      command: stop_with_on_off
+    id: release
+
+condition: []
+
+action:
+  - choose:
+      - alias: "Click UP → turn on, or warm white if double-click"
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'click_up' }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input dbl_up_pending
+                    state: 'on'
+                sequence:
+                  - action: input_boolean.turn_off
+                    target: { entity_id: !input dbl_up_pending }
+                  - action: light.turn_on
+                    target: { entity_id: !input light }
+                    data:
+                      color_temp_kelvin: "{{ (ww_k | int) if (ww_k | int) > 0 else (state_attr(light_e, 'min_color_temp_kelvin') | int(1700)) }}"
+            default:
+              - action: input_boolean.turn_on
+                target: { entity_id: !input dbl_up_pending }
+              - delay: !input double_click_window
+              - choose:
+                  - conditions:
+                      - condition: state
+                        entity_id: !input dbl_up_pending
+                        state: 'on'
+                    sequence:
+                      - action: input_boolean.turn_off
+                        target: { entity_id: !input dbl_up_pending }
+                      - action: light.turn_on
+                        target: { entity_id: !input light }
+
+      - alias: "Click DOWN → turn off, or red if double-click"
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'click_down' }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input dbl_down_pending
+                    state: 'on'
+                sequence:
+                  - action: input_boolean.turn_off
+                    target: { entity_id: !input dbl_down_pending }
+                  - action: light.turn_on
+                    target: { entity_id: !input light }
+                    data:
+                      rgb_color:
+                        - !input red_r
+                        - !input red_g
+                        - !input red_b
+            default:
+              - action: input_boolean.turn_on
+                target: { entity_id: !input dbl_down_pending }
+              - delay: !input double_click_window
+              - choose:
+                  - conditions:
+                      - condition: state
+                        entity_id: !input dbl_down_pending
+                        state: 'on'
+                    sequence:
+                      - action: input_boolean.turn_off
+                        target: { entity_id: !input dbl_down_pending }
+                      - action: light.turn_off
+                        target: { entity_id: !input light }
+
+      - alias: "Hold → dim (direction from move_mode)"
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id in ['hold', 'hold_move'] }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target: { entity_id: !input dbl_up_pending }
+          - action: input_boolean.turn_off
+            target: { entity_id: !input dbl_down_pending }
+          - choose:
+              - alias: "Hold UP → brighten (from 1% if off)"
+                conditions:
+                  - condition: template
+                    value_template: "{{ trigger.event.data.params.move_mode | int(0) == 0 }}"
+                sequence:
+                  - if:
+                      - condition: state
+                        entity_id: !input light
+                        state: 'off'
+                    then:
+                      - action: light.turn_on
+                        target: { entity_id: !input light }
+                        data: { brightness_pct: 1 }
+                      - delay: !input interval
+                  - repeat:
+                      while:
+                        - condition: template
+                          value_template: "{{ (state_attr(light_e, 'brightness') | int(0) * 100 // 255) < 100 }}"
+                      sequence:
+                        - action: light.turn_on
+                          target: { entity_id: !input light }
+                          data:
+                            brightness_pct: "{{ [100, (state_attr(light_e, 'brightness') | int(0) * 100 // 255) + step_v] | min }}"
+                        - delay: !input interval
+              - alias: "Hold DOWN → dim (no-op if off)"
+                conditions:
+                  - condition: template
+                    value_template: "{{ trigger.event.data.params.move_mode | int(0) == 1 }}"
+                sequence:
+                  - repeat:
+                      while:
+                        - condition: template
+                          value_template: "{{ (state_attr(light_e, 'brightness') | int(0) * 100 // 255) > 1 }}"
+                      sequence:
+                        - action: light.turn_on
+                          target: { entity_id: !input light }
+                          data:
+                            brightness_pct: "{{ [1, (state_attr(light_e, 'brightness') | int(0) * 100 // 255) - step_v] | max }}"
+                        - delay: !input interval
+
+mode: restart
