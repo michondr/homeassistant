@@ -1,0 +1,313 @@
+blueprint:
+  name: Motion — day / low-light / night scene (RGB red at night)
+  description: >
+    Turns two lights on when motion or presence is detected, and turns both off when
+    occupancy clears. Instant turn-off (no hold delay).
+
+    The scene is selected from the sun event window and the clock:
+    1) DAY - inside the sun event window (start event, e.g. sunrise, to end event,
+       e.g. sunset, each with an offset in minutes): turn on the dimmable light at the
+       day brightness. The RGB light stays off.
+    2) LOW LIGHT - not day, but inside the clock window (default 06:00-22:00): turn on
+       the dimmable light at the low brightness. The RGB light stays off.
+    3) NIGHT - outside both windows: turn on only the RGB light, fixed to red
+       (default 255,0,0) at the night brightness. The dimmable light stays off.
+  domain: automation
+  input:
+    motion_sensor:
+      name: Motion / presence sensor
+      description: Binary sensor that reports motion, occupancy, or presence (for example an Aqara FP2 zone).
+      selector:
+        entity:
+          domain: binary_sensor
+    dimmable_light:
+      name: Dimmable light
+      description: Dimmable light used in day mode and low-light mode.
+      selector:
+        entity:
+          domain: light
+    rgb_light:
+      name: RGB light
+      description: RGB light used in night mode. The blueprint forces its colour to red.
+      selector:
+        entity:
+          domain: light
+    day_start_event:
+      name: Day window - start sun event
+      default: sunrise
+      selector:
+        select:
+          options:
+            - label: Dawn (start of civil twilight)
+              value: dawn
+            - label: Sunrise
+              value: sunrise
+    day_start_offset:
+      name: Day window - start offset
+      description: Minutes before (negative) or after (positive) the start sun event.
+      default: 0
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: 5
+          unit_of_measurement: min
+    day_end_event:
+      name: Day window - end sun event
+      default: sunset
+      selector:
+        select:
+          options:
+            - label: Sunset
+              value: sunset
+            - label: Dusk (end of civil twilight)
+              value: dusk
+    day_end_offset:
+      name: Day window - end offset
+      description: Minutes before (negative) or after (positive) the end sun event.
+      default: 0
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: 5
+          unit_of_measurement: min
+    day_brightness:
+      name: Day mode - brightness
+      default: 75
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    low_window_start:
+      name: Low-light mode - start time
+      default: "06:00:00"
+      selector:
+        time:
+    low_window_end:
+      name: Low-light mode - end time
+      default: "22:00:00"
+      selector:
+        time:
+    low_brightness:
+      name: Low-light mode - brightness
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    night_brightness:
+      name: Night mode - RGB brightness
+      default: 50
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    night_turn_off_dimmer:
+      name: Night mode - turn the dimmable light off
+      description: >
+        Turn on to keep only the RGB light during night mode. Turn off to leave the
+        dimmable light unchanged.
+      default: true
+      selector:
+        boolean:
+    red_r:
+      name: Night mode - red R
+      default: 255
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    red_g:
+      name: Night mode - red G
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    red_b:
+      name: Night mode - red B
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    respect_existing:
+      name: Respect a manual setting
+      description: >
+        When the light of the active mode is already on, do not change it. Use this to
+        keep a manual brightness. The turn-off action is not affected.
+      default: true
+      selector:
+        boolean:
+    transition:
+      name: Transition time
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: seconds
+
+variables:
+  dimmer: !input dimmable_light
+  rgb_e: !input rgb_light
+  respect_on: !input respect_existing
+  night_off_dimmer: !input night_turn_off_dimmer
+  sun_start: !input day_start_event
+  sun_end: !input day_end_event
+  sun_start_off: !input day_start_offset
+  sun_end_off: !input day_end_offset
+  dimmer_on: "{{ is_state(dimmer, 'on') }}"
+  rgb_on: "{{ is_state(rgb_e, 'on') }}"
+  in_day_window: >-
+    {% set start_attr = 'next_dawn' if sun_start == 'dawn' else 'next_rising' %}
+    {% set end_attr = 'next_dusk' if sun_end == 'dusk' else 'next_setting' %}
+    {% set now_ts = as_timestamp(now()) %}
+    {% set start_ts = as_timestamp(state_attr('sun.sun', start_attr), 0) + (sun_start_off | int) * 60 %}
+    {% set end_ts = as_timestamp(state_attr('sun.sun', end_attr), 0) + (sun_end_off | int) * 60 %}
+    {% set start_candidates = [start_ts - 172800, start_ts - 86400, start_ts, start_ts + 86400, start_ts + 172800] %}
+    {% set end_candidates = [end_ts - 172800, end_ts - 86400, end_ts, end_ts + 86400, end_ts + 172800] %}
+    {% set last_start = (start_candidates | select('le', now_ts) | max) if start_ts else 0 %}
+    {% set last_end = (end_candidates | select('le', now_ts) | max) if end_ts else 0 %}
+    {{ (start_ts != 0) and (end_ts != 0) and ((last_start | float(0)) > (last_end | float(0))) }}
+
+trigger:
+  - trigger: state
+    entity_id: !input motion_sensor
+    to: "on"
+    id: occupancy_detected
+  - trigger: state
+    entity_id: !input motion_sensor
+    to: "off"
+    id: occupancy_cleared
+
+condition: []
+
+action:
+  - choose:
+      - alias: Occupancy detected - select the scene
+        conditions:
+          - condition: trigger
+            id: occupancy_detected
+        sequence:
+          - choose:
+              - alias: Day - inside the sun event window
+                conditions:
+                  - condition: template
+                    value_template: "{{ in_day_window | bool }}"
+                sequence:
+                  - alias: Day - dimmable light to the day brightness
+                    if:
+                      - condition: template
+                        value_template: "{{ not (respect_on and dimmer_on | bool) }}"
+                    then:
+                      - action: light.turn_on
+                        target:
+                          entity_id: !input dimmable_light
+                        data:
+                          brightness_pct: !input day_brightness
+                          transition: !input transition
+                  - alias: Day - keep the RGB light off
+                    if:
+                      - condition: template
+                        value_template: "{{ rgb_on | bool }}"
+                    then:
+                      - action: light.turn_off
+                        target:
+                          entity_id: !input rgb_light
+                        data:
+                          transition: !input transition
+
+              - alias: Low light - inside the clock window
+                conditions:
+                  - condition: time
+                    after: !input low_window_start
+                    before: !input low_window_end
+                sequence:
+                  - alias: Low light - dimmable light to the low brightness
+                    if:
+                      - condition: template
+                        value_template: "{{ not (respect_on and dimmer_on | bool) }}"
+                    then:
+                      - action: light.turn_on
+                        target:
+                          entity_id: !input dimmable_light
+                        data:
+                          brightness_pct: !input low_brightness
+                          transition: !input transition
+                  - alias: Low light - keep the RGB light off
+                    if:
+                      - condition: template
+                        value_template: "{{ rgb_on | bool }}"
+                    then:
+                      - action: light.turn_off
+                        target:
+                          entity_id: !input rgb_light
+                        data:
+                          transition: !input transition
+
+            default:
+              - alias: Night - RGB light, fixed red
+                if:
+                  - condition: template
+                    value_template: "{{ respect_on and rgb_on | bool }}"
+                then:
+                  - alias: Night - keep the manual brightness, enforce red
+                    action: light.turn_on
+                    target:
+                      entity_id: !input rgb_light
+                    data:
+                      rgb_color:
+                        - !input red_r
+                        - !input red_g
+                        - !input red_b
+                      transition: !input transition
+                else:
+                  - alias: Night - red at the night brightness
+                    action: light.turn_on
+                    target:
+                      entity_id: !input rgb_light
+                    data:
+                      rgb_color:
+                        - !input red_r
+                        - !input red_g
+                        - !input red_b
+                      brightness_pct: !input night_brightness
+                      transition: !input transition
+              - alias: Night - keep the dimmable light off
+                if:
+                  - condition: template
+                    value_template: "{{ (night_off_dimmer | bool) and (dimmer_on | bool) }}"
+                then:
+                  - action: light.turn_off
+                    target:
+                      entity_id: !input dimmable_light
+                    data:
+                      transition: !input transition
+
+    default:
+      - alias: Occupancy cleared - turn the dimmable light off
+        action: light.turn_off
+        target:
+          entity_id: !input dimmable_light
+        data:
+          transition: !input transition
+      - alias: Occupancy cleared - turn the RGB light off
+        action: light.turn_off
+        target:
+          entity_id: !input rgb_light
+        data:
+          transition: !input transition
+
+mode: restart
