@@ -25,54 +25,80 @@ The `path` value is relative to `blueprints/automation/`.
 
 ---
 
-## 1. Motion — day / low-light / night scene (`motion_scene_day_low_night_rgb.yaml`)
+## 1. Motion scene with keep-on button (`motion_scene_day_low_night_rgb.yaml`)
 
-**Summary.** Controls a dimmable light and an RGB light from one motion or presence
-sensor. The blueprint selects the scene from the sun position and from the clock:
+**Summary.** Controls one dimmable light and one RGB light from a presence sensor and a
+button. Two clock windows select the mode. The button sets a keep-on state. That state
+holds the dimmable light on and starts a purple breathing effect on the RGB light.
 
-| Mode | When it applies | Result |
+| Mode or gesture | When it applies | Result |
 | --- | --- | --- |
-| Day | Inside the sun window (for example sunrise–sunset, with offsets) | Dimmable light on at `day_brightness`, RGB light off |
-| Low light | Outside the sun window, inside the clock window (default 06:00–22:00) | Dimmable light on at `low_brightness`, RGB light off |
-| Night | Outside both windows | RGB light on at `night_brightness`, fixed red colour |
+| Day | Inside the day window (default 06:00–19:00) | Dimmable light on at `day_brightness`, RGB light off |
+| Low light | Inside the low-light window (default 06:00–22:00), not day | Dimmable light on at `low_brightness`, RGB light off |
+| Night | Outside both windows | RGB light on at `night_brightness`, fixed red, dimmable light off |
+| Presence cleared | Keep-on not active | Both lights off |
+| Button press, keep-on off | Any time | Keep-on on: dimmable light stays on, RGB light breathes purple |
+| Button press, keep-on on | Any time | Keep-on off: RGB light off, dimmable light off at the next presence clear |
+| Home Assistant start | Keep-on active | Restores the keep-on state and the breathing effect |
 
-The blueprint turns both lights off immediately when the occupancy clears. It does
-not use an off delay.
+The dimmable light keeps its brightness when keep-on sets it on and it is already on.
+At night, keep-on sets the dimmable light to `low_brightness`, because no day value
+applies. Set `off_hold` to 30–60 s if the sensor reports short clear blips.
+
+**Requirements**
+
+- One `input_boolean` helper for the keep-on state. Create it in Settings > Devices &
+  services > Helpers > Toggle.
+- The button must be an `event` entity. The blueprint reacts to every event type.
+- Keep the automation in `mode: parallel`. The blueprint sets it. Do not set
+  `mode: single`, or the breathing effect blocks every trigger while it runs.
 
 **Useful inputs**
 
 | Input | Default | Purpose |
 | --- | --- | --- |
 | `motion_sensor` | – | Binary sensor with motion, occupancy, or presence |
-| `dimmable_light` | – | Dimmer for day mode and low-light mode |
-| `rgb_light` | – | RGB light for night mode |
-| `day_start_event` / `day_end_event` | `sunrise` / `sunset` | Sun events for the day window |
-| `day_start_offset` / `day_end_offset` | `0` | Offsets in minutes for the sun events |
+| `dimmable_light` | – | Dimmer for day, low-light, and keep-on mode |
+| `rgb_light` | – | RGB light for night mode and for the breathing effect |
+| `toggle_button` | – | Event entity of the keep-on button |
+| `keep_on_helper` | – | `input_boolean` helper for the keep-on state |
+| `day_window_start` / `day_window_end` | `06:00:00` / `19:00:00` | Day window |
 | `day_brightness` | `75` | Day brightness in percent |
-| `low_window_start` / `low_window_end` | `06:00:00` / `22:00:00` | Clock window for low-light mode |
+| `low_window_start` / `low_window_end` | `06:00:00` / `22:00:00` | Low-light window |
 | `low_brightness` | `5` | Low-light brightness in percent |
 | `night_brightness` | `50` | Night brightness in percent |
 | `night_turn_off_dimmer` | `true` | Turn the dimmer off in night mode |
 | `red_r`, `red_g`, `red_b` | `255`, `0`, `0` | Night colour |
+| `breath_r`, `breath_g`, `breath_b` | `128`, `0`, `128` | Breathing colour (purple) |
+| `breath_low` / `breath_high` | `10` / `100` | Breathing brightness range in percent |
+| `breath_period` | `4` | Seconds for one full breath, up and down |
 | `respect_existing` | `true` | Keep a manual setting of the active light |
+| `off_hold` | `00:00:00` | Time clear before turn-off |
 | `transition` | `1` | Transition time in seconds |
+| `debug_logbook` | `false` | Write one logbook entry per run with the resolved values |
 
 **Example**
 
 ```yaml
-- id: hallway_motion_scene
-  alias: "Hallway — motion day/low/night scene"
-  mode: single
+# helper
+input_boolean:
+  bathroom_keep_on:
+    name: Bathroom — keep the light on
+```
+
+```yaml
+- id: bathroom_motion_scene
+  alias: "Bathroom — motion scene with keep-on button"
   use_blueprint:
     path: motion_scene_day_low_night_rgb.yaml
     input:
-      motion_sensor: binary_sensor.hallway_presence
-      dimmable_light: light.hallway_dimmer
-      rgb_light: light.hallway_rgb
-      day_start_event: sunrise
-      day_start_offset: -30
-      day_end_event: sunset
-      day_end_offset: 0
+      motion_sensor: binary_sensor.bathroom_presence_sensor_1
+      dimmable_light: light.bathroom_dimmer
+      rgb_light: light.bathroom_rgb
+      toggle_button: event.bathroom_button
+      keep_on_helper: input_boolean.bathroom_keep_on
+      day_window_start: "06:00:00"
+      day_window_end: "19:00:00"
       day_brightness: 75
       low_window_start: "06:00:00"
       low_window_end: "22:00:00"
@@ -82,8 +108,16 @@ not use an off delay.
       red_r: 255
       red_g: 0
       red_b: 0
+      breath_r: 128
+      breath_g: 0
+      breath_b: 128
+      breath_low: 10
+      breath_high: 100
+      breath_period: 4
       respect_existing: true
+      off_hold: "00:00:00"
       transition: 1
+      debug_logbook: false
 ```
 
 ---

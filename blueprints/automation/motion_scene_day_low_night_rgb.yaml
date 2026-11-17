@@ -1,77 +1,70 @@
 blueprint:
-  name: Motion — day / low-light / night scene (RGB red at night)
+  name: Motion — day / low-light / night scene + keep-on button (RGB red, purple breathing)
   description: >
     Turns two lights on when motion or presence is detected, and turns both off when
-    occupancy clears. Instant turn-off (no hold delay).
+    occupancy clears.
 
-    The scene is selected from the sun event window and the clock:
-    1) DAY - inside the sun event window (start event, e.g. sunrise, to end event,
-       e.g. sunset, each with an offset in minutes): turn on the dimmable light at the
-       day brightness. The RGB light stays off.
-    2) LOW LIGHT - not day, but inside the clock window (default 06:00-22:00): turn on
-       the dimmable light at the low brightness. The RGB light stays off.
-    3) NIGHT - outside both windows: turn on only the RGB light, fixed to red
-       (default 255,0,0) at the night brightness. The dimmable light stays off.
+    The scene is selected from two clock windows:
+    1) DAY - inside the day window (default 06:00-19:00): dimmable light at the day
+       brightness. The RGB light stays off.
+    2) LOW LIGHT - not day, but inside the low-light window (default 06:00-22:00):
+       dimmable light at the low brightness. The RGB light stays off.
+    3) NIGHT - outside both windows: only the RGB light, fixed red (default 255,0,0)
+       at the night brightness. The dimmable light stays off.
+
+    Keep-on button: one press of the button sets a keep-on helper. The dimmable light then
+    stays on when occupancy clears, and the RGB light breathes in purple (a smooth
+    brightness fade). A second press clears the helper: the RGB light goes off, and the
+    dimmable light turns off at the next occupancy clear (or at once, if presence is
+    already clear).
+
+    Enable "Debug - write a logbook entry" to get one logbook entry per run with the
+    selected mode and the resolved values.
   domain: automation
   input:
     motion_sensor:
       name: Motion / presence sensor
-      description: Binary sensor that reports motion, occupancy, or presence (for example an Aqara FP2 zone).
+      description: Binary sensor that reports motion, occupancy, or presence.
       selector:
         entity:
           domain: binary_sensor
     dimmable_light:
       name: Dimmable light
-      description: Dimmable light used in day mode and low-light mode.
+      description: Dimmable light used in day mode, low-light mode, and keep-on mode.
       selector:
         entity:
           domain: light
     rgb_light:
       name: RGB light
-      description: RGB light used in night mode. The blueprint forces its colour to red.
+      description: RGB light used in night mode and in the purple breathing effect.
       selector:
         entity:
           domain: light
-    day_start_event:
-      name: Day window - start sun event
-      default: sunrise
+    toggle_button:
+      name: Keep-on button
+      description: >
+        Event entity of the button. Any event type toggles the keep-on state.
       selector:
-        select:
-          options:
-            - label: Dawn (start of civil twilight)
-              value: dawn
-            - label: Sunrise
-              value: sunrise
-    day_start_offset:
-      name: Day window - start offset
-      description: Minutes before (negative) or after (positive) the start sun event.
-      default: 0
+        entity:
+          domain: event
+    keep_on_helper:
+      name: Keep-on helper (input_boolean)
+      description: >
+        Toggle helper that stores the keep-on state. Create it first in Settings >
+        Devices & services > Helpers > Toggle. The helper keeps its state across restarts.
       selector:
-        number:
-          min: -180
-          max: 180
-          step: 5
-          unit_of_measurement: min
-    day_end_event:
-      name: Day window - end sun event
-      default: sunset
+        entity:
+          domain: input_boolean
+    day_window_start:
+      name: Day window - start time
+      default: "06:00:00"
       selector:
-        select:
-          options:
-            - label: Sunset
-              value: sunset
-            - label: Dusk (end of civil twilight)
-              value: dusk
-    day_end_offset:
-      name: Day window - end offset
-      description: Minutes before (negative) or after (positive) the end sun event.
-      default: 0
+        time:
+    day_window_end:
+      name: Day window - end time
+      default: "19:00:00"
       selector:
-        number:
-          min: -180
-          max: 180
-          step: 5
-          unit_of_measurement: min
+        time:
     day_brightness:
       name: Day mode - brightness
       default: 75
@@ -82,12 +75,12 @@ blueprint:
           step: 1
           unit_of_measurement: "%"
     low_window_start:
-      name: Low-light mode - start time
+      name: Low-light window - start time
       default: "06:00:00"
       selector:
         time:
     low_window_end:
-      name: Low-light mode - end time
+      name: Low-light window - end time
       default: "22:00:00"
       selector:
         time:
@@ -141,6 +134,57 @@ blueprint:
           min: 0
           max: 255
           step: 1
+    breath_r:
+      name: Keep-on breathing - R
+      default: 128
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    breath_g:
+      name: Keep-on breathing - G
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    breath_b:
+      name: Keep-on breathing - B
+      default: 128
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    breath_low:
+      name: Keep-on breathing - lowest brightness
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    breath_high:
+      name: Keep-on breathing - highest brightness
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    breath_period:
+      name: Keep-on breathing - time for one full breath
+      default: 4
+      selector:
+        number:
+          min: 2
+          max: 20
+          step: 1
+          unit_of_measurement: seconds
     respect_existing:
       name: Respect a manual setting
       description: >
@@ -149,6 +193,16 @@ blueprint:
       default: true
       selector:
         boolean:
+    off_hold:
+      name: Hold time before turn-off
+      description: >
+        Time the sensor must stay clear before the lights turn off. Keep 00:00:00 for
+        instant turn-off. Raise it to 30-60 s if the presence sensor reports short
+        clear blips and the lights flicker.
+      default: "00:00:00"
+      selector:
+        duration:
+          enable_day: false
     transition:
       name: Transition time
       default: 1
@@ -158,29 +212,51 @@ blueprint:
           max: 60
           step: 0.5
           unit_of_measurement: seconds
+    debug_logbook:
+      name: Debug - write a logbook entry on every run
+      description: >
+        Adds an entry to the logbook of the motion sensor with the selected mode and the
+        resolved values. Use it in Settings > Logbook or in the mobile app Activity feed.
+        Turn it off after debugging.
+      default: false
+      selector:
+        boolean:
 
 variables:
   dimmer: !input dimmable_light
   rgb_e: !input rgb_light
+  keep_on_ent: !input keep_on_helper
   respect_on: !input respect_existing
   night_off_dimmer: !input night_turn_off_dimmer
-  sun_start: !input day_start_event
-  sun_end: !input day_end_event
-  sun_start_off: !input day_start_offset
-  sun_end_off: !input day_end_offset
+  debug_log: !input debug_logbook
+  day_start: !input day_window_start
+  day_end: !input day_window_end
+  low_start: !input low_window_start
+  low_end: !input low_window_end
+  day_pct: !input day_brightness
+  low_pct: !input low_brightness
+  breath_period_v: !input breath_period
   dimmer_on: "{{ is_state(dimmer, 'on') }}"
   rgb_on: "{{ is_state(rgb_e, 'on') }}"
-  in_day_window: >-
-    {% set start_attr = 'next_dawn' if sun_start == 'dawn' else 'next_rising' %}
-    {% set end_attr = 'next_dusk' if sun_end == 'dusk' else 'next_setting' %}
-    {% set now_ts = as_timestamp(now()) %}
-    {% set start_ts = as_timestamp(state_attr('sun.sun', start_attr), 0) + (sun_start_off | int) * 60 %}
-    {% set end_ts = as_timestamp(state_attr('sun.sun', end_attr), 0) + (sun_end_off | int) * 60 %}
-    {% set start_candidates = [start_ts - 172800, start_ts - 86400, start_ts, start_ts + 86400, start_ts + 172800] %}
-    {% set end_candidates = [end_ts - 172800, end_ts - 86400, end_ts, end_ts + 86400, end_ts + 172800] %}
-    {% set last_start = (start_candidates | select('le', now_ts) | max) if start_ts else 0 %}
-    {% set last_end = (end_candidates | select('le', now_ts) | max) if end_ts else 0 %}
-    {{ (start_ts != 0) and (end_ts != 0) and ((last_start | float(0)) > (last_end | float(0))) }}
+  keep_on_on: "{{ is_state(keep_on_ent, 'on') }}"
+  in_day: >-
+    {% set s = day_start | string %}
+    {% set e = day_end | string %}
+    {% set t = now().strftime('%H:%M:%S') %}
+    {% if s <= e %}{{ s <= t < e }}{% else %}{{ t >= s or t < e }}{% endif %}
+  in_low: >-
+    {% set s = low_start | string %}
+    {% set e = low_end | string %}
+    {% set t = now().strftime('%H:%M:%S') %}
+    {% if s <= e %}{{ s <= t < e }}{% else %}{{ t >= s or t < e }}{% endif %}
+  mode_name: >-
+    {% if in_day | bool %}day{% elif in_low | bool %}low{% else %}night{% endif %}
+  target_pct: >-
+    {% if in_day | bool %}{{ day_pct | int }}{% else %}{{ low_pct | int }}{% endif %}
+  breath_half: >-
+    {{ '%02d' | format(((breath_period_v | int(4)) // 2) | int) }}
+  breath_cycle: >-
+    {{ '%02d' | format((breath_period_v | int(4)) + 1) }}
 
 trigger:
   - trigger: state
@@ -190,22 +266,53 @@ trigger:
   - trigger: state
     entity_id: !input motion_sensor
     to: "off"
+    for: !input off_hold
     id: occupancy_cleared
+  - trigger: event.received
+    target:
+      entity_id: !input toggle_button
+    id: keep_on_toggle
+  - trigger: state
+    entity_id: !input keep_on_helper
+    to: "on"
+    id: keep_on_engaged
+  - trigger: state
+    entity_id: !input keep_on_helper
+    to: "off"
+    id: keep_on_released
+  - trigger: homeassistant
+    event: start
+    id: startup
 
 condition: []
 
 action:
+  - alias: Debug - write the resolved values to the logbook
+    if:
+      - condition: template
+        value_template: "{{ debug_log | bool }}"
+    then:
+      - action: logbook.log
+        data:
+          name: Motion scene
+          entity_id: !input motion_sensor
+          message: >-
+            {{ trigger.id }} mode={{ mode_name }} day={{ in_day | bool }} low={{ in_low | bool }}
+            keep_on={{ keep_on_on | bool }} dimmer_on={{ dimmer_on | bool }}
+            rgb_on={{ rgb_on | bool }} target={{ target_pct }}%
   - choose:
-      - alias: Occupancy detected - select the scene
+      - alias: Presence detected - select the scene unless keep-on is active
         conditions:
           - condition: trigger
             id: occupancy_detected
+          - condition: template
+            value_template: "{{ not keep_on_on | bool }}"
         sequence:
           - choose:
-              - alias: Day - inside the sun event window
+              - alias: Day - inside the day window
                 conditions:
                   - condition: template
-                    value_template: "{{ in_day_window | bool }}"
+                    value_template: "{{ in_day | bool }}"
                 sequence:
                   - alias: Day - dimmable light to the day brightness
                     if:
@@ -229,11 +336,10 @@ action:
                         data:
                           transition: !input transition
 
-              - alias: Low light - inside the clock window
+              - alias: Low light - inside the low-light window
                 conditions:
-                  - condition: time
-                    after: !input low_window_start
-                    before: !input low_window_end
+                  - condition: template
+                    value_template: "{{ in_low | bool }}"
                 sequence:
                   - alias: Low light - dimmable light to the low brightness
                     if:
@@ -296,18 +402,144 @@ action:
                     data:
                       transition: !input transition
 
-    default:
-      - alias: Occupancy cleared - turn the dimmable light off
-        action: light.turn_off
-        target:
-          entity_id: !input dimmable_light
-        data:
-          transition: !input transition
-      - alias: Occupancy cleared - turn the RGB light off
-        action: light.turn_off
-        target:
-          entity_id: !input rgb_light
-        data:
-          transition: !input transition
+      - alias: Presence cleared - turn the lights off unless keep-on is active
+        conditions:
+          - condition: trigger
+            id: occupancy_cleared
+          - condition: template
+            value_template: "{{ not keep_on_on | bool }}"
+        sequence:
+          - alias: Presence cleared - turn the dimmable light off
+            action: light.turn_off
+            target:
+              entity_id: !input dimmable_light
+            data:
+              transition: !input transition
+          - alias: Presence cleared - turn the RGB light off
+            action: light.turn_off
+            target:
+              entity_id: !input rgb_light
+            data:
+              transition: !input transition
 
-mode: restart
+      - alias: Button - toggle the keep-on helper
+        conditions:
+          - condition: trigger
+            id: keep_on_toggle
+        sequence:
+          - choose:
+              - alias: Keep-on is active - clear it
+                conditions:
+                  - condition: template
+                    value_template: "{{ keep_on_on | bool }}"
+                sequence:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input keep_on_helper
+            default:
+              - alias: Keep-on is not active - set it
+                action: input_boolean.turn_on
+                target:
+                  entity_id: !input keep_on_helper
+
+      - alias: Keep-on set - dimmable light stays on, RGB light breathes
+        conditions:
+          - condition: trigger
+            id: keep_on_engaged
+        sequence:
+          - alias: Keep-on - turn the dimmable light on when it is off
+            if:
+              - condition: template
+                value_template: "{{ not dimmer_on | bool }}"
+            then:
+              - action: light.turn_on
+                target:
+                  entity_id: !input dimmable_light
+                data:
+                  brightness_pct: "{{ target_pct | int }}"
+                  transition: !input transition
+          - alias: Keep-on - breathe in purple until the button is pressed again
+            repeat:
+              while:
+                - condition: template
+                  value_template: "{{ keep_on_on | bool }}"
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ keep_on_on | bool }}"
+                  then:
+                    - action: light.turn_on
+                      target:
+                        entity_id: !input rgb_light
+                      data:
+                        rgb_color:
+                          - !input breath_r
+                          - !input breath_g
+                          - !input breath_b
+                        brightness_pct: !input breath_high
+                        transition: "{{ breath_half | int }}"
+                - delay: "00:00:{{ breath_half }}"
+                - if:
+                    - condition: template
+                      value_template: "{{ keep_on_on | bool }}"
+                  then:
+                    - action: light.turn_on
+                      target:
+                        entity_id: !input rgb_light
+                      data:
+                        rgb_color:
+                          - !input breath_r
+                          - !input breath_g
+                          - !input breath_b
+                        brightness_pct: !input breath_low
+                        transition: "{{ breath_half | int }}"
+                - delay: "00:00:{{ breath_half }}"
+
+      - alias: Keep-on cleared - RGB light off, dimmable light follows presence
+        conditions:
+          - condition: trigger
+            id: keep_on_released
+        sequence:
+          - alias: Keep-on cleared - stop the breathing effect at once
+            action: light.turn_off
+            target:
+              entity_id: !input rgb_light
+            data:
+              transition: 1
+          - alias: Keep-on cleared - dimmable light off when presence is already clear
+            if:
+              - condition: state
+                entity_id: !input motion_sensor
+                state: "off"
+            then:
+              - action: light.turn_off
+                target:
+                  entity_id: !input dimmable_light
+                data:
+                  transition: !input transition
+          - alias: Keep-on cleared - wait one breathing cycle
+            delay: "00:00:{{ breath_cycle }}"
+          - alias: Keep-on cleared - make sure the RGB light is off
+            action: light.turn_off
+            target:
+              entity_id: !input rgb_light
+
+      - alias: Home Assistant started - restore the keep-on state
+        conditions:
+          - condition: trigger
+            id: startup
+          - condition: state
+            entity_id: !input keep_on_helper
+            state: "on"
+        sequence:
+          - alias: Startup - clear and set the helper again to restart the breathing
+            action: input_boolean.turn_off
+            target:
+              entity_id: !input keep_on_helper
+          - delay: "00:00:01"
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input keep_on_helper
+
+mode: parallel
+max: 20
