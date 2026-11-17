@@ -37,8 +37,8 @@ holds the dimmable light on and starts a purple breathing effect on the RGB ligh
 | Low light | Inside the low-light window (default 06:00–22:00), not day | Dimmable light on at `low_brightness`, RGB light off |
 | Night | Outside both windows | RGB light on at `night_brightness`, fixed red, dimmable light off |
 | Presence cleared | Keep-on not active | Both lights off |
-| Button press, keep-on off | Any time | Keep-on on: dimmable light stays on, RGB light breathes purple |
-| Button press, keep-on on | Any time | Keep-on off: RGB light off, dimmable light off at the next presence clear |
+| Single press, keep-on off | Any time | Keep-on on: dimmable light stays on, RGB light breathes purple |
+| Single press, keep-on on | Any time | Keep-on off: RGB light off, dimmable light off at the next presence clear |
 | Home Assistant start | Keep-on active | Restores the keep-on state and the breathing effect |
 
 The dimmable light keeps its brightness when keep-on sets it on and it is already on.
@@ -49,7 +49,8 @@ applies. Set `off_hold` to 30–60 s if the sensor reports short clear blips.
 
 - One `input_boolean` helper for the keep-on state. Create it in Settings > Devices &
   services > Helpers > Toggle.
-- The button must be an `event` entity. The blueprint reacts to every event type.
+- The button must be an `event` entity, for example a Shelly input. Only the event type
+  in `toggle_event_type` toggles the state. The default is `single_push`.
 - Keep the automation in `mode: parallel`. The blueprint sets it. Do not set
   `mode: single`, or the breathing effect blocks every trigger while it runs.
 
@@ -61,11 +62,12 @@ applies. Set `off_hold` to 30–60 s if the sensor reports short clear blips.
 | `dimmable_light` | – | Dimmer for day, low-light, and keep-on mode |
 | `rgb_light` | – | RGB light for night mode and for the breathing effect |
 | `toggle_button` | – | Event entity of the keep-on button |
+| `toggle_event_type` | `single_push` | Event type that toggles the keep-on state |
 | `keep_on_helper` | – | `input_boolean` helper for the keep-on state |
 | `day_window_start` / `day_window_end` | `06:00:00` / `19:00:00` | Day window |
 | `day_brightness` | `75` | Day brightness in percent |
 | `low_window_start` / `low_window_end` | `06:00:00` / `22:00:00` | Low-light window |
-| `low_brightness` | `5` | Low-light brightness in percent |
+| `low_brightness` | `35` | Low-light brightness in percent, also used by keep-on at night |
 | `night_brightness` | `50` | Night brightness in percent |
 | `night_turn_off_dimmer` | `true` | Turn the dimmer off in night mode |
 | `red_r`, `red_g`, `red_b` | `255`, `0`, `0` | Night colour |
@@ -95,14 +97,15 @@ input_boolean:
       motion_sensor: binary_sensor.bathroom_presence_sensor_1
       dimmable_light: light.bathroom_dimmer
       rgb_light: light.bathroom_rgb
-      toggle_button: event.bathroom_button
+      toggle_button: event.shelly_bathroom_input_0
+      toggle_event_type: single_push
       keep_on_helper: input_boolean.bathroom_keep_on
       day_window_start: "06:00:00"
       day_window_end: "19:00:00"
       day_brightness: 75
       low_window_start: "06:00:00"
       low_window_end: "22:00:00"
-      low_brightness: 5
+      low_brightness: 35
       night_brightness: 50
       night_turn_off_dimmer: true
       red_r: 255

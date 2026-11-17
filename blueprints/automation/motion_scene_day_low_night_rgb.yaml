@@ -43,10 +43,32 @@ blueprint:
     toggle_button:
       name: Keep-on button
       description: >
-        Event entity of the button. Any event type toggles the keep-on state.
+        Event entity of the button. Shelly input entities work here.
       selector:
         entity:
           domain: event
+    toggle_event_type:
+      name: Keep-on button - event type
+      description: >
+        Event type that toggles the keep-on state. A Shelly input in momentary mode
+        sends single_push. Type another value if the input uses a different button type.
+      default: single_push
+      selector:
+        select:
+          custom_value: true
+          options:
+            - label: Single push
+              value: single_push
+            - label: Double push
+              value: double_push
+            - label: Triple push
+              value: triple_push
+            - label: Long push
+              value: long_push
+            - label: Button down
+              value: btn_down
+            - label: Button up
+              value: btn_up
     keep_on_helper:
       name: Keep-on helper (input_boolean)
       description: >
@@ -86,7 +108,7 @@ blueprint:
         time:
     low_brightness:
       name: Low-light mode - brightness
-      default: 5
+      default: 35
       selector:
         number:
           min: 1
@@ -271,6 +293,9 @@ trigger:
   - trigger: event.received
     target:
       entity_id: !input toggle_button
+    options:
+      event_type:
+        - !input toggle_event_type
     id: keep_on_toggle
   - trigger: state
     entity_id: !input keep_on_helper
