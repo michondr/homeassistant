@@ -277,8 +277,6 @@ variables:
     {% if in_day | bool %}{{ day_pct | int }}{% else %}{{ low_pct | int }}{% endif %}
   breath_half: >-
     {{ '%02d' | format(((breath_period_v | int(4)) // 2) | int) }}
-  breath_cycle: >-
-    {{ '%02d' | format((breath_period_v | int(4)) + 1) }}
 
 trigger:
   - trigger: state
@@ -486,12 +484,14 @@ action:
           - alias: Keep-on - breathe in purple until the button is pressed again
             repeat:
               while:
-                - condition: template
-                  value_template: "{{ keep_on_on | bool }}"
+                - condition: state
+                  entity_id: !input keep_on_helper
+                  state: "on"
               sequence:
                 - if:
-                    - condition: template
-                      value_template: "{{ keep_on_on | bool }}"
+                    - condition: state
+                      entity_id: !input keep_on_helper
+                      state: "on"
                   then:
                     - action: light.turn_on
                       target:
@@ -505,8 +505,9 @@ action:
                         transition: "{{ breath_half | int }}"
                 - delay: "00:00:{{ breath_half }}"
                 - if:
-                    - condition: template
-                      value_template: "{{ keep_on_on | bool }}"
+                    - condition: state
+                      entity_id: !input keep_on_helper
+                      state: "on"
                   then:
                     - action: light.turn_on
                       target:
@@ -542,12 +543,19 @@ action:
                   entity_id: !input dimmable_light
                 data:
                   transition: !input transition
-          - alias: Keep-on cleared - wait one breathing cycle
-            delay: "00:00:{{ breath_cycle }}"
-          - alias: Keep-on cleared - make sure the RGB light is off
-            action: light.turn_off
-            target:
-              entity_id: !input rgb_light
+          - alias: Keep-on cleared - let a fade that was already sent finish
+            delay: "00:00:01"
+          - alias: Keep-on cleared - make sure the RGB light stays off
+            if:
+              - condition: state
+                entity_id: !input keep_on_helper
+                state: "off"
+            then:
+              - action: light.turn_off
+                target:
+                  entity_id: !input rgb_light
+                data:
+                  transition: 1
 
       - alias: Home Assistant started - restore the keep-on state
         conditions:
